@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Open-Source Data and 
+      Effective Evacuation Routing
+      </title>
+    <!-- Bootstrap CSS -->
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <!-- Leaflet.markercluster CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+    <style>
+        /* Fullscreen map */
+        body, html, #map {
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        /* Style for route properties sidebar */
+        #sidebar {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 600px; /* Adjust sidebar width */
+            height: 100%;
+            background-color: #f8f9fa;
+            padding: 20px;
+            z-index: 1000;
+            overflow-y: auto; /* Enable vertical scrolling */
+        }
+        /* Custom marker cluster styles */
+        .marker-cluster {
+            background-color: blue; /* Change background color to blue */
+            border-radius: 50%;
+            color: white;
+            text-align: center;
+            font-size: 14px;
+        }
+
+        .marker-cluster:hover {
+            background-color: darkblue; /* Change background color on hover if desired */
+        }
+        /* Style for legend */
+        .legend {
+            padding: 10px;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            margin-bottom: 20px;
+        }
+        .legend-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .legend-item {
+            margin-bottom: 5px;
+        }
+        .settlement-icon {
+            width: 20px;
+            height: 20px;
+            background-color: blue;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        .openspace-icon {
+            width: 20px;
+            height: 20px;
+            background-color: green;
+            display: inline-block;
+            margin-right: 5px;
+        }
+
+        .route-icon-fast {
+            width: 20px;
+            height: 10px;
+            background-color: red;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        .route-icon-slow {
+            width: 20px;
+            height: 6px;
+            background-color: red;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        .route-icon-slowest {
+            width: 20px;
+            height: 3px;
+            background-color: red;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        .bubble {
+            position: relative;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            padding: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            max-width: 200px; /* Adjust as needed */
+        }
+
+        /* Define styles for the content inside the bubble */
+        .content {
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        /* Style the text marker */
+        .text-marker {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000; /* Ensure the marker is above other map elements */
+        }
+        /* Style for map attributes and data sources */
+        #map-info {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background-color: rgba(255, 255, 255, 0.7);
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            z-index: 1000; /* Ensure it's above other elements */
+        }
+        /* Style for the base layer switcher */
+        .leaflet-control-layers {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(255, 255, 255, 0.7);
+            padding: 5px 10px;
+            border-radius: 5px;
+            z-index: 1000; /* Ensure it's above other elements */
+        }
+        
+        /* Style for reset button */
+        #resetButton {
+            width: 100%;
+        }
+        /* Style for route properties table */
+        #routeTable {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        #routeTable th, #routeTable td {
+            border: 1px solid #ddd;
+            padding: 5px;
+            text-align: left;
+        }
+        #routeTable th {
+            background-color: #f2f2f2;
+        }
+        /* Define styles for the chat bubble */
+
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+<div id="map-info">
+  <p>Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors</p>
+  <p>Map tiles by <a href="https://leafletjs.com/">Leaflet</a></p>
+  <p>Settlment data by <a href="https://nationalgeoportal.gov.np/">National Geoportal</a></p>
+  <p>Open space data by <a href="https://openspacenepal.info/">OPEN SPACES MAPPING for
+    HUMANITARIAN ASSISTANCE
+    </a></p>
+</div>
+
+
+<!-- Sidebar for route properties -->
+<div id="sidebar">
+  <!-- <button id="resetButton" class="btn btn-primary mt-2 ml-2">Reset Map</button> -->
+    
+    <div class="legend">
+        <h4 class="legend-title">Legend</h4>
+        <!-- Add legend items here -->
+        
+        <div><i class="settlement-icon"></i> Settlements</div>
+        <div><i class="openspace-icon"></i> Humanitarian Open Space</div>
+        <div><i class="route-icon-fast"></i> Fastest Route </div>
+        <div><i class="route-icon-slow"></i> Slower Route </div>
+        <div><i class="route-icon-slowest"></i> Slowest Route </div>
+    </div>
+       <!-- Toggle button for loading obstacles -->
+       <div class="form-group form-check">
+        <input type="checkbox" class="form-check-input" id="toggleObstacles">
+        <label class="form-check-label" for="toggleObstacles">Load Obstacles</label>
+    </div>
+    <!-- Container for route properties table -->
+    <div id="routeProperties">
+        <h2 class="mb-3">Route Details</h2>
+        <div class="alert alert-info mb-3" role="alert">
+          <h6 class="alert-heading">To access detailed route information, please click on any settlement marker (Blue Marker) visible on the map. 🗺️</h6>
+        </div>
+
+        <div class="alert alert-warning mb-3" role="alert">
+          <h6 class="alert-heading">Note: Only the top three shortest travel time routes are displayed on the map. For detailed travel time information and all open space views, refer to the table below.</h6>
+      </div>
+      
+        <table id="routeTable" class="table table-bordered table-striped">
+            <thead>
+            <tr>
+                <th onclick="sortTable(0)">Origin <span class="sort-icon"></span></th>
+                <th onclick="sortTable(1)">Destination <span class="sort-icon"></span></th>
+                <th onclick="sortTable(2)">Distance (m) <span class="sort-icon"></span></th>
+                <th onclick="sortTable(3)">Travel Time (Min) <span class="sort-icon"></span></th>
+            </tr>
+            </thead>
+            <tbody>
+            <!-- Table body content will be added dynamically -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Leaflet JavaScript -->
+<script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+<!-- Leaflet.markercluster JavaScript -->
+<script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+
+    var map;
+    var markers = L.markerClusterGroup();
+    
+    var clickedMarkerLayer = L.layerGroup(); // Layer group for clicked marker
+    var aggregatedProperties = {};
+    var markerName;
+    var obstacleLayer; 
+
+    // Initialize Leaflet map
+    function initializeMap() {
+        map = L.map('map', {
+            fullscreenControl: true, // Add fullscreen control
+            zoomControl: true // Add zoom control
+        }).setView([27.7172, 85.3240], 14); // Set initial view to Kathmandu
+
+        // Add OpenStreetMap tile layer
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+           // Base Layers
+        var baseLayers = {
+            "OpenStreetMap": L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
+            }),
+            "Satellite": L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+                maxZoom: 20,
+                subdomains:['mt0','mt1','mt2','mt3'],
+                attribution: 'Map data &copy; <a href="https://www.google.com/maps">Google Maps</a>'
+            })
+        };
+
+         // Add base layers to the map
+        L.control.layers(baseLayers).addTo(map);
+        baseLayers.OpenStreetMap.addTo(map); // Add OpenS
+    }
+
+// Load polygons from GeoJSON file
+function loadOpenspaces() {
+    $.getJSON("routes/open_spaces_2.geojson", function(data) {
+        console.log(data)
+        L.geoJSON(data, {
+            style: function(feature) {
+                return {
+                    fillColor: "green",  // Adjust the fill color as needed
+                    color: "green",      // Adjust the border color as needed
+                    weight: 1,           // Adjust the border weight as needed
+                    opacity: 1,          // Adjust the opacity as needed
+                    fillOpacity: 0.5     // Adjust the fill opacity as needed
+                };
+            },
+            onEachFeature: function(feature, layer) {
+                layer.on('click', function() {
+                   
+                });
+            }
+        }).addTo(map); // Add the GeoJSON layer directly to the map
+    }).fail(function() {
+        handleLoadError("Failed to load openspaces.");
+    });
+}
+
+// Load polygons from GeoJSON file
+function loadObstacles() {
+    $.getJSON("routes/obstacle.geojson", function(data) {
+        console.log(data)
+        L.geoJSON(data, {
+            style: function(feature) {
+                return {
+                    fillColor: "yellow",  // Adjust the fill color as needed
+                    color: "yellow",      // Adjust the border color as needed
+                    weight: 1,           // Adjust the border weight as needed
+                    opacity: 1,          // Adjust the opacity as needed
+                    fillOpacity: 0.5     // Adjust the fill opacity as needed
+                };
+            },
+            onEachFeature: function(feature, layer) {
+               
+                layer.on('click', function() {
+                    // Your additional handling code here if needed
+                });
+            }
+        }).addTo(map); 
+    }).fail(function() {
+        handleLoadError("Failed to load obstacle.");
+    });
+}
+
+
+
+
+    // Load markers from GeoJSON file
+    function loadMarkers() {
+
+        // Remove existing clicked marker layer
+        map.removeLayer(clickedMarkerLayer);
+        // Remove existing route layers
+        map.eachLayer(function(layer) {
+            if (layer instanceof L.GeoJSON) {
+                map.removeLayer(layer);
+            }
+        });
+        $.getJSON("routes/settlements_ktm.geojson", function(data) {
+            L.geoJSON(data, {
+                pointToLayer: function(feature, latlng) {
+                    var settlementName = feature.properties.SETTL_NAME;
+                    var circleOptions = {
+                        radius: 15,
+                        fillColor: "blue",
+                        color: "blue",
+                        weight: 1,
+                        opacity: 1,
+                        fillOpacity: 0.8
+                    };
+                    var circleMarker = L.circleMarker(latlng, circleOptions);
+                    circleMarker.bindTooltip(settlementName, {permanent: true, className: "text-label", offset: [0, 0]});
+                    return circleMarker;
+                },
+                onEachFeature: function(feature, layer) {
+                    layer.on('click', function() {
+                        markerName = feature.properties.SETTL_NAME;
+                        loadOpenspaces()
+                        loadRoutes(markerName);
+                    });
+                }
+            }).addTo(markers);
+            markers.addTo(map); // Add marker cluster group to the map
+        }).fail(function() {
+            handleLoadError("Failed to load markers.");
+        });
+    }
+
+
+
+
+    // Load routes based on marker name
+    function loadRoutes(markerName) {
+        // Remove existing clicked marker layer
+        map.removeLayer(clickedMarkerLayer);
+        // Remove existing route layers
+        map.eachLayer(function (layer) {
+            if (layer instanceof L.GeoJSON) {
+                map.removeLayer(layer);
+            }
+        });
+
+        // Determine the folder to load routes from based on the obstacle toggle
+       var folder = $('#toggleObstacles').is(":checked") ? "obs" : "routes";
+
+        console.log("loading from "+folder)
+        // Load routes GeoJSON
+        $.getJSON("routes/"+markerName + "_routes.geojson", function (routesData) {
+            // Handle data from the loaded routes GeoJSON file
+            console.log("Loaded GeoJSON for routes of marker: " + markerName);
+
+            // Aggregate route properties
+            aggregateRouteProperties(routesData.features);
+            updateAggregatedRoutePropertiesTable();
+
+            // Example: Display top three shortest routes on the map
+            displayTopThreeShortestRoutes(routesData.features);
+
+        }).fail(function () {
+            handleLoadError("Failed to load routes for the settlement: " + markerName);
+        });
+    }
+// Function to display top three shortest routes on the map
+    function displayTopThreeShortestRoutes(features) {
+        var sortedFeatures = features.slice(0); // Create a copy to avoid modifying the original array
+        sortedFeatures.sort(function(a, b) {
+            return a.properties.travel_time - b.properties.travel_time;
+        });
+
+        var shortestRoute = sortedFeatures[0].properties.travel_time;
+
+        // Display top three shortest routes with varying widths and opacities
+        for (var i = 0; i < Math.min(3, sortedFeatures.length); i++) {
+            var route = sortedFeatures[i];
+            var width = (route.properties.travel_time === shortestRoute) ? 10 : 3;
+            var opacity = 1 - (route.properties.travel_time - shortestRoute) / (shortestRoute * 2); // Adjust opacity relative to the shortest route
+            // Calculate the midpoint of the route
+
+            var routeLayer = L.geoJSON(route, {
+                style: function(feature) {
+                    return {
+                        color: 'red',
+                        weight: width,
+                        opacity: opacity
+                    };
+                },
+                onEachFeature: function(feature, layer) {
+                    if (feature.properties) {
+                        
+                        var properties = feature.properties;
+                        console.log(properties)
+                        var popupContent = 
+                                          "<b>Origin:</b> " + properties.origin+ "<br>" +
+                                          "<b>Destination:</b> " + properties.destination+ "<br>" +
+                                          "<b>Length (meters):</b> " + properties.length + "<br>" +
+                                          "<b>Travel Time (seconds):</b> " + properties.travel_time;
+
+                        layer.bindPopup(popupContent);
+
+                      //   var textMarker = L.marker(layer.getBounds().getCenter(), {
+                      //     icon: L.divIcon({
+                      //         className: 'text-marker',
+                      //         html: "<div class='bubble'>" + 
+                      //                   "<div class='content'>" +
+                      //                       "<div><b>Destination:</b> " + properties.destination_settlement + "</div>" +
+                      //                       "<div><b>Length (meters):</b> " + properties.length_meter + "</div>" +
+                      //                       "<div><b>Travel Time (seconds):</b> " + properties.travel_time_seconds + "</div>" +
+                      //                   "</div>" +
+                      //               "</div>"
+                      //     })
+                      // });
+                      // textMarker.addTo(map);
+                    }
+                }
+            });
+            routeLayer.addTo(map);
+        }
+    }
+
+
+
+    // // Load routes based on marker name
+    // function loadRoutes(markerName) {
+    //     // Remove existing clicked marker layer
+    //     map.removeLayer(clickedMarkerLayer);
+
+    //     // Load routes GeoJSON
+    //     $.getJSON(markerName + "_routes.geojson", function(routesData) {
+    //         // Handle data from the loaded routes GeoJSON file
+    //         console.log("Loaded GeoJSON for routes of marker: " + markerName);
+
+    //         // Aggregate route properties
+    //         aggregateRouteProperties(routesData.features);
+    //         updateAggregatedRoutePropertiesTable();
+
+    //         // Example: Display GeoJSON features on the map for routes
+    //         var routesLayer = L.geoJSON(routesData, {
+    //             style: function(feature) {
+    //                 return {
+    //                     color: "red", // Customize feature color
+    //                     weight: 3 // Customize feature weight
+    //                 };
+    //             },
+    //             onEachFeature: function(feature, layer) {
+    //                 if (feature.properties) {
+    //                     layer.bindPopup("Name: " + feature.properties.name); // Example: Bind popup with feature name
+    //                     // Handle click event to update route properties table
+    //                     layer.on('click', function(e) {
+    //                         console.log("Clicked on a route feature");
+    //                     });
+    //                 }
+    //             }
+    //         });
+
+    //         clickedMarkerLayer.clearLayers(); // Clear existing clicked marker
+    //         clickedMarkerLayer.addLayer(routesLayer); // Add routes layer to clicked marker layer
+    //         clickedMarkerLayer.addTo(map); // Add clicked marker layer to the map
+
+    //     }).fail(function() {
+    //         handleLoadError("Failed to load routes for the settlement: " + markerName);
+    //     });
+    // }
+
+
+    // Function to aggregate route properties
+    function aggregateRouteProperties(features) {
+
+      var sortedFeatures = [];
+
+      // Aggregate route properties
+      features.forEach(function(feature) {
+          // Push the feature to the sortedFeatures array
+          sortedFeatures.push(feature);
+          for (var key in feature.properties) {
+              if (feature.properties.hasOwnProperty(key)) {
+                  if (!aggregatedProperties[key]) {
+                      aggregatedProperties[key] = [];
+                  }
+                  aggregatedProperties[key].push(feature.properties[key]);
+              }
+          }
+      });
+
+      // Sort features based on travel time
+      sortedFeatures.sort(function(a, b) {
+          return a.properties.travel_time - b.properties.travel_time;
+      });
+
+      // Clear existing aggregated properties
+      for (var key in aggregatedProperties) {
+          aggregatedProperties[key] = [];
+      }
+
+      // Re-aggregate properties from sorted features
+      sortedFeatures.forEach(function(feature) {
+          for (var key in feature.properties) {
+              if (feature.properties.hasOwnProperty(key)) {
+                  aggregatedProperties[key].push(feature.properties[key]);
+              }
+          }
+      });
+
+    }
+
+    // Function to update the aggregated route properties table
+    function updateAggregatedRoutePropertiesTable() {
+        var tableBody = document.querySelector("#routeTable tbody");
+        tableBody.innerHTML = ""; // Clear existing table content
+
+        // Find the maximum number of values among all properties
+        var maxValues = 0;
+        for (var key in aggregatedProperties) {
+            if (aggregatedProperties[key].length > maxValues) {
+                maxValues = aggregatedProperties[key].length;
+            }
+        }
+
+        // Create rows for each value
+        for (var i = 0; i < maxValues; i++) {
+            var row = document.createElement("tr");
+            for (var key in aggregatedProperties) {
+                var cell = document.createElement("td");
+                cell.textContent = aggregatedProperties[key][i] || ""; 
+                row.appendChild(cell);
+            }
+            tableBody.appendChild(row);
+        }
+    }
+
+    // Function to reset the map
+    function resetMap() {
+        map.eachLayer(function(layer) {
+            if (layer !== map) {
+                map.removeLayer(layer);
+            }
+        });
+        initializeMap();
+        loadMarkers();
+        loadOpenspaces();
+    }
+
+    // Error handling
+    function handleLoadError(errorMessage) {
+        alert(errorMessage);
+        console.error(errorMessage);
+    }
+
+    // Initialize the map and load markers
+    $(document).ready(function() {
+        initializeMap();
+        loadMarkers();
+        loadOpenspaces();
+        $('#resetButton').on('click', resetMap);
+    });
+
+    $(document).ready(function() {
+    // Event listener for the toggle button
+    
+    $('#toggleObstacles').change(function() {
+     
+      loadRoutes(markerName);
+      loadOpenspaces();
+      
+      if ($(this).is(':checked')) {
+            loadObstacles(); // Load obstacles if the toggle is checked
+        } else {
+          
+            clearObstacles();
+        }
+    });
+    });
+
+    //     // Function to load obstacles
+    // function loadObstacles() {
+    //     // Check if obstacleLayer already exists, if so, remove it
+    //   if (obstacleLayer) {
+    //       map.removeLayer(obstacleLayer);
+    //   }
+
+    //   // Load obstacle data from obstacle.geojson
+    //     $.getJSON("obstacle.geojson", function(data) {
+    //         // Create GeoJSON layer with obstacle data
+    //         obstacleLayer = L.geoJSON(data).addTo(map);
+    //     }).fail(function() {
+    //         console.error("Failed to load obstacles.");
+    //     });
+    // }
+
+    // // Function to clear obstacles
+    // function clearObstacles() {
+    //     if (obstacleLayer) {
+    //         map.removeLayer(obstacleLayer);
+    //     }
+    // }
+
+    // Sort table function
+    function sortTable(columnIndex) {
+        var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+        table = document.getElementById("routeTable");
+        switching = true;
+        // Set the sorting direction to ascending:
+        dir = "asc";
+        // Set the sorting column:
+        while (switching) {
+            switching = false;
+            rows = table.rows;
+            // Loop through all table rows (except the first, which contains table headers):
+            for (i = 1; i < (rows.length - 1); i++) {
+                shouldSwitch = false;
+                // Get the two elements you want to compare, one from current row and one from the next:
+                x = rows[i].getElementsByTagName("td")[columnIndex];
+                y = rows[i + 1].getElementsByTagName("td")[columnIndex];
+                // Check if the two rows should switch place, based on the direction, asc or desc:
+                if (dir === "asc") {
+                    if (x.innerHTML.toLowerCase() > y.innerHTML.toLowerCase()) {
+                        // If so, mark as a switch and break the loop:
+                        shouldSwitch = true;
+                        break;
+                    }
+                } else if (dir === "desc") {
+                    if (x.innerHTML.toLowerCase() < y.innerHTML.toLowerCase()) {
+                        // If so, mark as a switch and break the loop:
+                        shouldSwitch = true;
+                        break;
+                    }
+                }
+            }
+            if (shouldSwitch) {
+                // If a switch has been marked, make the switch and mark that a switch has been done:
+                rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+                switching = true;
+                // Increase this count for each switch:
+                switchcount++;
+            } else {
+                // If no switching has been done and the direction is "asc", set the direction to "desc" and run the while loop again:
+                if (switchcount === 0 && dir === "asc") {
+                    dir = "desc";
+                    switching = true;
+                }
+            }
+        }
+    }
+
+      // Function to calculate the bearing between two points
+  function calculateBearing(lat1, lon1, lat2, lon2) {
+      var dLon = (lon2 - lon1);
+      var y = Math.sin(dLon) * Math.cos(lat2);
+      var x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+      var brng = Math.atan2(y, x);
+      brng = (brng * 180) / Math.PI;
+      brng = (brng + 360) % 360;
+      return brng;
+  }
+
+</script>
+
+</body>
+</html>
